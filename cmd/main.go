@@ -1,52 +1,62 @@
 package main
 
 import (
-	"log"
-	"errors"
-	"github.com/airbrake/gobrake"
 	"bufio"
 	"fmt"
 	"os"
 	"strings"
 
+	"github.com/namsral/flag"
+
+	"github.com/airbrake/gobrake"
 	"github.com/sirupsen/logrus"
 
 	"github.com/ferux/phraseGen"
-	"github.com/ferux/phraseGen/markov"
-	"github.com/ferux/phraseGen/utils"
+	"github.com/ferux/phrasegen/markov"
+	"github.com/ferux/phrasegen/utils"
 )
 
-var (
-	notifier = gobrake.NewNotifierWithOptions(&gobrake.NotifierOptions{
-		Host: phraseGen.Config.ErrbitHost,
-		ProjectId: phraseGen.Config.ErrbitID,
-		ProjectKey: phraseGen.Config.ErrbitKey,
-		Environment: phraseGen.Environment,
-		Revision: phraseGen.Revision,
+func init() {
+	flag.String(flag.DefaultConfigFlagname, "", "Config file")
+	c := phrasegen.Configuration{}
+	c.ErrbitHost = *flag.String("ERRBIT_HOST", "", "Errbit Host")
+	c.ErrbitID = *flag.Int64("ERRBIT_ID", 0, "Errbit Project ID")
+	c.ErrbitKey = *flag.String("ERRBIT_KEY", "", "Errbit Project Key")
+	phrasegen.Config = c
+	phrasegen.Environment = *flag.String("ENV", "Develop", "Environment")
+	phrasegen.Logger = logrus.New()
+
+	flag.Parse()
+
+	phrasegen.Notifier = gobrake.NewNotifierWithOptions(&gobrake.NotifierOptions{
+		Host:        phrasegen.Config.ErrbitHost,
+		ProjectId:   phrasegen.Config.ErrbitID,
+		ProjectKey:  phrasegen.Config.ErrbitKey,
+		Environment: phrasegen.Environment,
+		Revision:    phrasegen.Revision,
 	})
+}
+
+var (
+	notifier = phrasegen.Notifier
 	// l is for logger
-	l = logrus.New().WithFields(logrus.Fields{
-		"Version":  phraseGen.Version,
-		"Revision": phraseGen.Revision,
+	l = phrasegen.Logger.WithFields(logrus.Fields{
+		"Version":  phrasegen.Version,
+		"Revision": phrasegen.Revision,
 	})
 )
 
 func main() {
 	l.Info("Started")
-	gobrake.SetLogger(log.New(os.Stdout, "errbit ", 0))
-	notifier.AddFilter(func (n *gobrake.Notice) *gobrake.Notice {
+	notifier.AddFilter(func(n *gobrake.Notice) *gobrake.Notice {
 		n.Params = map[string]interface{}{
-			"Version": phraseGen.Version,
-			"Revision": phraseGen.Revision,
-			"Environment": phraseGen.Environment,
+			"Version":     phrasegen.Version,
+			"Revision":    phrasegen.Revision,
+			"Environment": phrasegen.Environment,
 		}
 		return n
 	})
-	notifier.Notify(errors.New("oops"), nil)
-	l.Info("Sending notify")
 
-	l.WithError(notifier.Close()).Print("Closed")
-	os.Exit(0)
 	fn := "./bin/bash.json"
 
 	bp := utils.NewBashParser(fn, logrus.InfoLevel)
