@@ -1,15 +1,16 @@
 package main
 
 import (
+	"flag"
+	"strconv"
 	"bufio"
 	"fmt"
 	"os"
 	"strings"
 
-	"github.com/namsral/flag"
-
 	"github.com/airbrake/gobrake"
 	"github.com/sirupsen/logrus"
+	"github.com/joho/godotenv"
 
 	"github.com/ferux/phraseGen"
 	"github.com/ferux/phrasegen/markov"
@@ -17,16 +18,29 @@ import (
 )
 
 func init() {
-	flag.String(flag.DefaultConfigFlagname, "", "Config file")
-	c := phrasegen.Configuration{}
-	c.ErrbitHost = *flag.String("ERRBIT_HOST", "", "Errbit Host")
-	c.ErrbitID = *flag.Int64("ERRBIT_ID", 0, "Errbit Project ID")
-	c.ErrbitKey = *flag.String("ERRBIT_KEY", "", "Errbit Project Key")
-	phrasegen.Config = c
-	phrasegen.Environment = *flag.String("ENV", "Develop", "Environment")
-	phrasegen.Logger = logrus.New()
+	var err error
+	err = godotenv.Load()
+	if err != nil {
+		panic(err)
+	}
+
+	if fpath = os.Getenv("GO_FILE"); len(fpath) == 0 {
+		fpath = *flag.String("file", "", "Path to file")
+	}
 
 	flag.Parse()
+
+	c := phrasegen.Configuration{}
+	c.ErrbitHost = os.Getenv("GO_ERRBIT_HOST")
+	c.ErrbitID, err = strconv.ParseInt(os.Getenv("GO_ERRBIT_ID"), 10, 64)
+	
+	if err != nil {
+		panic(err)
+	}
+	c.ErrbitKey = os.Getenv("GO_ERRBIT_KEY")
+	phrasegen.Config = c
+	phrasegen.Environment = os.Getenv("GO_ENV")
+	phrasegen.Logger = logrus.New()
 
 	phrasegen.Notifier = gobrake.NewNotifierWithOptions(&gobrake.NotifierOptions{
 		Host:        phrasegen.Config.ErrbitHost,
@@ -35,31 +49,43 @@ func init() {
 		Environment: phrasegen.Environment,
 		Revision:    phrasegen.Revision,
 	})
-}
 
-var (
-	notifier = phrasegen.Notifier
-	// l is for logger
-	l = phrasegen.Logger.WithFields(logrus.Fields{
-		"Version":  phrasegen.Version,
-		"Revision": phrasegen.Revision,
-	})
-)
-
-func main() {
-	l.Info("Started")
-	notifier.AddFilter(func(n *gobrake.Notice) *gobrake.Notice {
+	phrasegen.Notifier.AddFilter(func(n *gobrake.Notice) *gobrake.Notice {
 		n.Params = map[string]interface{}{
-			"Version":     phrasegen.Version,
-			"Revision":    phrasegen.Revision,
-			"Environment": phrasegen.Environment,
+			"version":     phrasegen.Version,
+			"revision":    phrasegen.Revision,
+			"environment": phrasegen.Environment,
 		}
 		return n
 	})
 
-	fn := "./bin/bash.json"
+	l = phrasegen.Logger.WithFields(logrus.Fields{
+		"version":  phrasegen.Version,
+		"revision": phrasegen.Revision,
+		"pkg": "main",
+		"fn": "main",
+	})
+	notifier = phrasegen.Notifier
+}
 
-	bp := utils.NewBashParser(fn, logrus.InfoLevel)
+var (
+	notifier *gobrake.Notifier
+	// l is for logger
+	l *logrus.Entry
+
+	// fpath path to dictionary or text
+	fpath string
+)
+
+func main() {
+	l.Info("Started")
+	defer notifier.NotifyOnPanic()
+	if phrasegen.Environment == "dev" {
+		l.WithField("Configuration", phrasegen.Config)
+	}
+
+
+	bp := utils.NewBashParser(fpath, logrus.InfoLevel)
 	msgc, errc := bp.Start()
 	go func() {
 
