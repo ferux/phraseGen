@@ -5,27 +5,15 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
-	"regexp"
 	"time"
 
 	"github.com/sirupsen/logrus"
 )
 
-// BashStruct describes model of the parsed bash.im quotes.
-type BashStruct struct {
-	Date   time.Time `json:"-"`
-	Number string    `json:"-"`
-	Text   string    `json:"text"`
-}
-
-// GetText returns text of quote.
-func (b *BashStruct) GetText() string {
-	return b.Text
-}
-
 // BashParser provide file parsing to bash quotes
 type BashParser struct {
 	filename string
+	status   ParseStatus
 	ready    bool
 	fast     bool
 
@@ -81,6 +69,11 @@ func (b *BashParser) Start() (<-chan string, <-chan error) {
 	return b.outc, b.errc
 }
 
+// GetStatus returns status of application
+func (b *BashParser) GetStatus() ParseStatus {
+	return b.status
+}
+
 func (b *BashParser) loop() {
 	// logging is good
 	l := b.l.WithFields(logrus.Fields{
@@ -92,6 +85,7 @@ func (b *BashParser) loop() {
 	// open file
 	f, err := os.Open(b.filename)
 	if err != nil {
+		b.status = StatusFail
 		l.WithError(err).Error("exiting")
 		return
 	}
@@ -108,6 +102,7 @@ func (b *BashParser) loop() {
 
 	dec := json.NewDecoder(f)
 	if _, err := dec.Token(); err != nil {
+		b.status = StatusFail
 		l.WithError(err).Error("can't extract open token")
 		b.errc <- err
 		return
@@ -123,6 +118,7 @@ func (b *BashParser) loop() {
 	}()
 	for dec.More() {
 		if err := dec.Decode(&quote); err != nil {
+			b.status = StatusWarn
 			l.WithError(err).Error("can't decode row, skipping")
 			b.errc <- err
 			continue
@@ -134,11 +130,13 @@ func (b *BashParser) loop() {
 	}
 
 	if _, err := dec.Token(); err != nil {
+		b.status = StatusFail
 		l.WithError(err).Error("can't extract close token")
 		b.errc <- err
 		return
 	}
 	l.Infof("rows proceeded: %d for %s", rows, time.Since(start).String())
+	b.status = StatusOk
 }
 
 func (b *BashParser) fastloop() {
@@ -156,17 +154,18 @@ func (b *BashParser) fastloop() {
 	// open file
 	f, err := ioutil.ReadFile(b.filename)
 	if err != nil {
+		b.status = StatusFail
 		l.WithError(err).Error("exiting")
 		b.errc <- err
 		return
 	}
 	defer func() {
 		l.Info("Finished loop")
-
 	}()
 
 	var bqs []BashStruct
 	if err := json.Unmarshal(f, &bqs); err != nil {
+		b.status = StatusWarn
 		l.WithError(err).Error("can't unmarshal")
 		b.errc <- err
 	}
@@ -185,10 +184,6 @@ func (b *BashParser) fastloop() {
 	}
 	t.Stop()
 	l.Infof("rows proceeded: %d for %s", rows, time.Since(start).String())
+	b.status = StatusOk
 }
 
-var filterBashDialogsRegex = regexp.MustCompile(`(?m)^([\w\d]+:\s*)(.+)$`)
-
-func filterBashDialog(s string) string {
-	return filterBashDialogsRegex.ReplaceAllString(s, "$2")
-}

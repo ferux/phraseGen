@@ -1,20 +1,20 @@
 package main
 
 import (
-	"flag"
-	"strconv"
 	"bufio"
+	"flag"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/airbrake/gobrake"
-	"github.com/sirupsen/logrus"
 	"github.com/joho/godotenv"
+	"github.com/sirupsen/logrus"
 
 	"github.com/ferux/phraseGen"
-	"github.com/ferux/phrasegen/markov"
-	"github.com/ferux/phrasegen/utils"
+	"github.com/ferux/phraseGen/markov"
+	"github.com/ferux/phraseGen/utils"
 )
 
 func init() {
@@ -33,7 +33,7 @@ func init() {
 	c := phrasegen.Configuration{}
 	c.ErrbitHost = os.Getenv("GO_ERRBIT_HOST")
 	c.ErrbitID, err = strconv.ParseInt(os.Getenv("GO_ERRBIT_ID"), 10, 64)
-	
+
 	if err != nil {
 		panic(err)
 	}
@@ -62,8 +62,8 @@ func init() {
 	l = phrasegen.Logger.WithFields(logrus.Fields{
 		"version":  phrasegen.Version,
 		"revision": phrasegen.Revision,
-		"pkg": "main",
-		"fn": "main",
+		"pkg":      "main",
+		"fn":       "main",
 	})
 	notifier = phrasegen.Notifier
 }
@@ -84,15 +84,14 @@ func main() {
 		l.WithField("Configuration", phrasegen.Config)
 	}
 
-
 	bp := utils.NewBashParser(fpath, logrus.InfoLevel)
 	msgc, errc := bp.Start()
 	go func() {
-
 		l.Info("Started listening to errors")
 		for err := range errc {
-			l.WithError(err).Error("got error from parser")
+			l.WithError(err).Error("parsing error")
 		}
+		l.Info("Error channel has been closed")
 	}()
 
 	c := markov.NewChain()
@@ -100,9 +99,12 @@ func main() {
 	for msg := range msgc {
 		_ = c.ParseText(msg)
 	}
+	l.Info("Recalculating chances")
 	c.CalculateCells()
 	// c.Iterate()
-
+	if bp.GetStatus() == utils.StatusFail {
+		l.Fatal("bashparser ended with error")
+	}
 	l.Println("Ready to accept messages")
 	sc := bufio.NewReader(os.Stdin)
 	for {
