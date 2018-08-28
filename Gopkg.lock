@@ -11,6 +11,21 @@
   version = "v3.6.1"
 
 [[projects]]
+  branch = "master"
+  name = "github.com/ferux/phrasegen"
+  packages = [
+    "markov",
+    "utils"
+  ]
+  revision = "7c63843e86d37af4c420012f21924272c3baf972"
+
+[[projects]]
+  name = "github.com/joho/godotenv"
+  packages = ["."]
+  revision = "a79fa1e548e2c689c241d10173efd51e5d689d5b"
+  version = "v1.2.0"
+
+[[projects]]
   name = "github.com/pkg/errors"
   packages = ["."]
   revision = "645ef00459ed84a119197bfb8d8205042c6df63d"
@@ -40,6 +55,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "b3663bb8b54b5b5709b175d3012e87a8f15e4cd655347cb8c8a0df443445c2a1"
+  inputs-digest = "1401d8b082fad4f52b0e085a796986d07f9f9ccb3926c9a01619ea7c881718a5"
   solver-name = "gps-cdcl"
   solver-version = 1

@@ -1,55 +1,91 @@
 package main
 
 import (
-	"log"
-	"errors"
-	"github.com/airbrake/gobrake"
+	"flag"
+	"strconv"
 	"bufio"
 	"fmt"
 	"os"
 	"strings"
 
+	"github.com/airbrake/gobrake"
 	"github.com/sirupsen/logrus"
+	"github.com/joho/godotenv"
 
 	"github.com/ferux/phraseGen"
-	"github.com/ferux/phraseGen/markov"
-	"github.com/ferux/phraseGen/utils"
+	"github.com/ferux/phrasegen/markov"
+	"github.com/ferux/phrasegen/utils"
 )
 
+func init() {
+	var err error
+	err = godotenv.Load()
+	if err != nil {
+		panic(err)
+	}
+
+	if fpath = os.Getenv("GO_FILE"); len(fpath) == 0 {
+		fpath = *flag.String("file", "", "Path to file")
+	}
+
+	flag.Parse()
+
+	c := phrasegen.Configuration{}
+	c.ErrbitHost = os.Getenv("GO_ERRBIT_HOST")
+	c.ErrbitID, err = strconv.ParseInt(os.Getenv("GO_ERRBIT_ID"), 10, 64)
+	
+	if err != nil {
+		panic(err)
+	}
+	c.ErrbitKey = os.Getenv("GO_ERRBIT_KEY")
+	phrasegen.Config = c
+	phrasegen.Environment = os.Getenv("GO_ENV")
+	phrasegen.Logger = logrus.New()
+
+	phrasegen.Notifier = gobrake.NewNotifierWithOptions(&gobrake.NotifierOptions{
+		Host:        phrasegen.Config.ErrbitHost,
+		ProjectId:   phrasegen.Config.ErrbitID,
+		ProjectKey:  phrasegen.Config.ErrbitKey,
+		Environment: phrasegen.Environment,
+		Revision:    phrasegen.Revision,
+	})
+
+	phrasegen.Notifier.AddFilter(func(n *gobrake.Notice) *gobrake.Notice {
+		n.Params = map[string]interface{}{
+			"version":     phrasegen.Version,
+			"revision":    phrasegen.Revision,
+			"environment": phrasegen.Environment,
+		}
+		return n
+	})
+
+	l = phrasegen.Logger.WithFields(logrus.Fields{
+		"version":  phrasegen.Version,
+		"revision": phrasegen.Revision,
+		"pkg": "main",
+		"fn": "main",
+	})
+	notifier = phrasegen.Notifier
+}
+
 var (
-	notifier = gobrake.NewNotifierWithOptions(&gobrake.NotifierOptions{
-		Host: phraseGen.Config.ErrbitHost,
-		ProjectId: phraseGen.Config.ErrbitID,
-		ProjectKey: phraseGen.Config.ErrbitKey,
-		Environment: phraseGen.Environment,
-		Revision: phraseGen.Revision,
-	})
+	notifier *gobrake.Notifier
 	// l is for logger
-	l = logrus.New().WithFields(logrus.Fields{
-		"Version":  phraseGen.Version,
-		"Revision": phraseGen.Revision,
-	})
+	l *logrus.Entry
+
+	// fpath path to dictionary or text
+	fpath string
 )
 
 func main() {
 	l.Info("Started")
-	gobrake.SetLogger(log.New(os.Stdout, "errbit ", 0))
-	notifier.AddFilter(func (n *gobrake.Notice) *gobrake.Notice {
-		n.Params = map[string]interface{}{
-			"Version": phraseGen.Version,
-			"Revision": phraseGen.Revision,
-			"Environment": phraseGen.Environment,
-		}
-		return n
-	})
-	notifier.Notify(errors.New("oops"), nil)
-	l.Info("Sending notify")
+	defer notifier.NotifyOnPanic()
+	if phrasegen.Environment == "dev" {
+		l.WithField("Configuration", phrasegen.Config)
+	}
 
-	l.WithError(notifier.Close()).Print("Closed")
-	os.Exit(0)
-	fn := "./bin/bash.json"
 
-	bp := utils.NewBashParser(fn, logrus.InfoLevel)
+	bp := utils.NewBashParser(fpath, logrus.InfoLevel)
 	msgc, errc := bp.Start()
 	go func() {
 
