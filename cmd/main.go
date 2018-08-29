@@ -66,6 +66,23 @@ func init() {
 		"fn":  "main",
 	})
 	
+	if af := os.Getenv("GO_ASYNC_FILL"); af != "" {
+		afb, err := strconv.ParseBool(af)
+		if err != nil {
+			asyncFill = false
+		} else {
+			asyncFill = afb
+		}
+	}
+
+	if fr := os.Getenv("GO_FAKE_RUN"); fr != "" {
+		frb, err := strconv.ParseBool(fr)
+		if err != nil {
+			fakeRun = false
+		} else {
+			fakeRun = frb
+		}
+	}
 }
 
 var (
@@ -77,11 +94,13 @@ var (
 	fpath string
 
 	status AppStatus
+
+	asyncFill bool
+	fakeRun bool
 )
 
 const (
-	asyncFill = true
-	fakeRun = true
+	
 )
 
 func main() {
