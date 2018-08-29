@@ -9,7 +9,9 @@ import (
 	"fmt"
 	"math/rand"
 	"regexp"
+	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -26,20 +28,24 @@ var (
 
 	// addSpace regexp searches throught words and marks symbols attached to these words.
 	addSpaceRegex = regexp.MustCompile(`(?m)([а-яА-Я\w\-]+)([.,;:!?\(\)\"\'])`)
-
 )
 
 // Chain contains dictionary of parsed text
 type Chain struct {
 	d            map[string][]Cell
 	totalRecords uint64
+
+	// determines if TextProcessing runs in concurrency mode
+	asyncMode  bool
+	maxWorkers int
+	mu         sync.RWMutex
 }
 
 // NewChain creates new chain
 // nolint
 func NewChain() *Chain {
 	l.Info("Created new Chain")
-	return &Chain{make(map[string][]Cell), 0}
+	return &Chain{make(map[string][]Cell), 0, false, 0, sync.RWMutex{}}
 }
 
 // AddCell adds new cell to dictionary. If there's no  records of the core string
@@ -49,6 +55,8 @@ func (c *Chain) AddCell(core string, cell Cell) {
 		fmt.Println("Cell is not valid. Skipping.")
 		return
 	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.totalRecords++
 	_, ok := c.d[core]
 	if !ok {
@@ -67,6 +75,8 @@ func (c *Chain) AddCell(core string, cell Cell) {
 
 // GetCells gets cell slice of core
 func (c *Chain) GetCells(core string) ([]Cell, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if ca, ok := c.d[core]; ok {
 		return ca, nil
 	}
@@ -77,7 +87,9 @@ func (c *Chain) GetCells(core string) ([]Cell, error) {
 // GetNextWord for generating
 func (c *Chain) GetNextWord(core string) (Cell, error) {
 	rand.Seed(time.Now().UnixNano())
+	c.mu.RLock()
 	cells, err := c.GetCells(core)
+	c.mu.RUnlock()
 	if err != nil {
 		return Cell{}, err
 	}
@@ -96,11 +108,15 @@ func (c *Chain) GetNextWord(core string) (Cell, error) {
 
 // GetTotalRecords returns total amount of records
 func (c *Chain) GetTotalRecords() uint64 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	return c.totalRecords
 }
 
 // CalculateCells sets chance of appearance of each cell.
 func (c *Chain) CalculateCells() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	for k := range c.d {
 		var total uint64
 		for _, vc := range c.d[k] {
@@ -129,6 +145,8 @@ func (c *Chain) Beautify(data []byte, err error) ([]byte, error) {
 
 // Iterate throught dictionary.
 func (c *Chain) Iterate() {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	for k, v := range c.d {
 		fmt.Printf("Word: %s [\n", k)
 		for _, cell := range v {
@@ -140,6 +158,8 @@ func (c *Chain) Iterate() {
 
 // Reset erases all rows from dictionary.
 func (c *Chain) Reset() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.d = make(map[string][]Cell)
 	c.totalRecords = 0
 }
@@ -149,7 +169,7 @@ func (c *Chain) ParseText(s string) error {
 	if len(s) == 0 {
 		return errors.New("string is empty")
 	}
-	
+
 	s = strings.TrimSpace(s)
 	if s[len(s)-1] != '.' {
 		s = s + "."
@@ -172,7 +192,7 @@ func (c *Chain) ParseText(s string) error {
 			c.AddCell(w[:len(w)-1], NewCell("*END*", 1, End))
 			prevCore = "*START*"
 		case w[len(w)-1] > 32 && w[len(w)-1] < 65:
-			
+
 			continue
 		default:
 			wl := strings.ToLower(w)
@@ -182,6 +202,59 @@ func (c *Chain) ParseText(s string) error {
 		}
 	}
 	return nil
+}
+
+// SetAsync turns text processing in concurrency mode. You should also specify number of workers
+// which should be more than 1 or will be binded to amount of cpu cores.
+func (c *Chain) SetAsync(maxworkers int) {
+	lw := l.WithField("fn", "SetAsync")
+	if maxworkers < 1 {
+		maxworkers = runtime.NumCPU()
+	}
+	lw.WithField("maxWorkers", maxworkers).Info("Setting up Async Chain")
+	c.asyncMode = true
+	c.maxWorkers = maxworkers
+}
+
+// RunAsync runs workers.
+func (c *Chain) RunAsync() (chan<- string, chan<- struct{}, <-chan error) {
+	lw := l.WithField("fn", "RunAsync")
+	if !c.asyncMode {
+		lw.Warn("not in async mode")
+		errc := make(chan error, 1)
+		errc <- errors.New("asyncMode if false")
+		close(errc)
+		return nil, nil, errc
+	}
+	lw.Info("preparing channels")
+	donec := make(chan struct{}, 1)
+	inc := make(chan string, 100)
+	errc := make(chan error, 20)
+
+	go func() {
+		for i := 0; i < c.maxWorkers; i++ {
+			lw.WithField("id", i).Info("Running worker")
+			c.runWorker(i, inc, errc)
+		}
+		<-donec
+		close(donec)
+		close(inc)
+		close(errc)
+	}()
+	return inc, donec, errc
+}
+
+func (c *Chain) runWorker(id int, inc <-chan string, errc chan<- error) {
+	var err error
+	lw := l.WithField("WorkerID", id)
+	lw.Info("Started")
+	defer lw.Info("Finished")
+
+	for msg := range inc {
+		if err = c.ParseText(msg); err != nil {
+			errc <- err
+		}
+	}
 }
 
 func addSpace(s string) string {

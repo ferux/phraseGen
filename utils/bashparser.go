@@ -165,25 +165,34 @@ func (b *BashParser) fastloop() {
 
 	var bqs []BashStruct
 	if err := json.Unmarshal(f, &bqs); err != nil {
-		b.status = StatusWarn
+		b.status = StatusFail
 		l.WithError(err).Error("can't unmarshal")
 		b.errc <- err
+		return
 	}
-	var rows uint64
+	var rows, rps, secs uint64
+	total := uint64(len(bqs))
 	start := time.Now()
-	t := time.NewTicker(time.Second / 2)
+	t := time.NewTicker(time.Second)
 	go func() {
 		for range t.C {
+			secs++
 			fmt.Print("\033[2K\r")
-			fmt.Print("Processing row: ", rows)
+			fmt.Printf("Processing row (%7d/%7d) %d rps (%d avg)\tEstimated: %d seconds", rows, total, rps, rows/secs, (total-rows)/(rows/secs))
+			rps = 0
 		}
 	}()
 	for _, bq := range bqs {
 		b.outc <- filterBashDialog(bq.Text)
 		rows++
+		rps++
 	}
 	t.Stop()
-	l.Infof("rows proceeded: %d for %s", rows, time.Since(start).String())
+	fmt.Print("\033[2K\r")
+	l.WithFields(logrus.Fields{
+		"rows":     rows,
+		"avg(rps)": rows / secs,
+	}).Infof("Task done for %.3f second(s)", time.Since(start).Seconds())
 	b.status = StatusOk
 }
 

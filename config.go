@@ -23,6 +23,9 @@ var (
 
 	// Config is a settings for the application
 	Config Configuration
+
+	// Port is a port for listening to gRPC service
+	Port uint16
 )
 
 // Configuration of the file

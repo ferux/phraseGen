@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package api;
+
+service API {
+        // GetMessage asks Chains to generate new random message and send it
+        // to the client.
+        rpc GetMessage(Query) returns (Message) {}
+
+        // AskStatus asks server about its status.
+        rpc AskStatus(Query) returns (Status) {}
+}
+
+// Query to procedure
+message Query {
+        string id = 1;
+        string msg = 2;
+}
+
+// Message contains ID in uuid format and text.
+message Message {
+        string id = 1;
+        Timestamp ts = 2;
+        string text = 3;
+}
+
+// Timestamp for reporting.
+message Timestamp {
+        int64 seconds = 1;
+        int32 nanos = 2;
+}
+
+message Status {
+        string Status = 1;
+        Timestamp ts = 2;
+}
