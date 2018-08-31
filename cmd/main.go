@@ -1,14 +1,15 @@
 package main
 
 import (
-	"net"
-	"google.golang.org/grpc"
-	"github.com/ferux/phraseGen/api"
 	"bufio"
 	"fmt"
+	"net"
 	"os"
 	"strconv"
 	"strings"
+
+	"github.com/ferux/phraseGen/api"
+	"google.golang.org/grpc"
 
 	"github.com/airbrake/gobrake"
 	"github.com/joho/godotenv"
@@ -42,7 +43,7 @@ func init() {
 	phrasegen.Port = uint16(port)
 
 	phrasegen.Config = c
-	
+
 	phrasegen.Notifier = gobrake.NewNotifierWithOptions(&gobrake.NotifierOptions{
 		Host:        phrasegen.Config.ErrbitHost,
 		ProjectId:   phrasegen.Config.ErrbitID,
@@ -65,7 +66,7 @@ func init() {
 		"pkg": "main",
 		"fn":  "main",
 	})
-	
+
 	if af := os.Getenv("GO_ASYNC_FILL"); af != "" {
 		afb, err := strconv.ParseBool(af)
 		if err != nil {
@@ -96,12 +97,10 @@ var (
 	status AppStatus
 
 	asyncFill bool
-	fakeRun bool
+	fakeRun   bool
 )
 
-const (
-	
-)
+const ()
 
 func main() {
 	l.WithFields(logrus.Fields{
@@ -134,7 +133,7 @@ func main() {
 		if err := initgRPC(c); err != nil {
 			l.WithError(err).Fatal("error in gRPC server")
 		}
-	} ()
+	}()
 	for {
 		fmt.Print("Enter any line. For exit, enter end:\n")
 		msg, err := sc.ReadString('\n')
@@ -160,9 +159,8 @@ func initgRPC(c *markov.Chain) error {
 		return err
 	}
 	grpcServer := grpc.NewServer([]grpc.ServerOption{}...)
-	api.RegisterAPIServer(grpcServer, &api.Server{C: c})
+	api.RegisterAPIServer(grpcServer, api.NewServer(c, logrus.InfoLevel))
 	lw.WithField("Port", phrasegen.Port).Info("running grpc server")
-	
 	return grpcServer.Serve(l)
 }
 
