@@ -1,10 +1,5 @@
 package phrasegen
 
-import (
-	"github.com/airbrake/gobrake"
-	"github.com/sirupsen/logrus"
-)
-
 var (
 	// Version of application
 	Version string
@@ -15,11 +10,8 @@ var (
 	// Environment of application
 	Environment string
 
-	// Notifier is an app-wide error notifier
-	Notifier *gobrake.Notifier
-
-	// Logger is an app-wide logger
-	Logger *logrus.Logger
+	// LogLevel of the applications.
+	LogLevel string
 
 	// Config is a settings for the application
 	Config Configuration

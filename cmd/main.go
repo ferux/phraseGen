@@ -3,21 +3,21 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"strconv"
 	"strings"
 
-	"github.com/ferux/phraseGen/api"
-	"google.golang.org/grpc"
+	"github.com/ferux/phraseGen/internal/api"
+	"github.com/ferux/phraseGen/internal/markov"
+	"github.com/ferux/phraseGen/internal/utils"
 
-	"github.com/airbrake/gobrake"
 	"github.com/joho/godotenv"
 	"github.com/sirupsen/logrus"
+	"google.golang.org/grpc"
 
-	"github.com/ferux/phraseGen"
-	"github.com/ferux/phraseGen/markov"
-	"github.com/ferux/phraseGen/utils"
+	phrasegen "github.com/ferux/phraseGen"
 )
 
 func init() {
@@ -44,29 +44,6 @@ func init() {
 
 	phrasegen.Config = c
 
-	phrasegen.Notifier = gobrake.NewNotifierWithOptions(&gobrake.NotifierOptions{
-		Host:        phrasegen.Config.ErrbitHost,
-		ProjectId:   phrasegen.Config.ErrbitID,
-		ProjectKey:  phrasegen.Config.ErrbitKey,
-		Environment: phrasegen.Environment,
-		Revision:    phrasegen.Revision,
-	})
-	phrasegen.Notifier.AddFilter(func(n *gobrake.Notice) *gobrake.Notice {
-		n.Params = map[string]interface{}{
-			"version":     phrasegen.Version,
-			"revision":    phrasegen.Revision,
-			"environment": phrasegen.Environment,
-		}
-		return n
-	})
-	notifier = phrasegen.Notifier
-
-	phrasegen.Logger = logrus.New()
-	l = phrasegen.Logger.WithFields(logrus.Fields{
-		"pkg": "main",
-		"fn":  "main",
-	})
-
 	if af := os.Getenv("GO_ASYNC_FILL"); af != "" {
 		afb, err := strconv.ParseBool(af)
 		if err != nil {
@@ -87,10 +64,6 @@ func init() {
 }
 
 var (
-	notifier *gobrake.Notifier
-	// l is for logger
-	l *logrus.Entry
-
 	// fpath path to dictionary or text
 	fpath string
 
@@ -100,32 +73,53 @@ var (
 	fakeRun   bool
 )
 
-const ()
+const (
+	cachefile = "./mrk.bin"
+)
+
+type dumblogger struct{}
+
+func (dumblogger) Println(args ...interface{}) { log.Println(args...) }
+
+func (dumblogger) Fatal(args ...interface{}) { os.Exit(1) }
+
+func (dumblogger) Error(args ...interface{}) { log.Println(append(args, "ERRO")...) }
+
+func (dumblogger) Warn(args ...interface{}) { log.Println(append(args, "WARN")...) }
+
+func (dumblogger) Info(args ...interface{}) { log.Println(append(args, "INFO")...) }
+
+func (dumblogger) Debug(args ...interface{}) { log.Println(append(args, "DEBU")...) }
+
+func (dumblogger) WithError(err error) dumblogger { return l }
+
+func (dumblogger) WithField(key, value interface{}) dumblogger { return l }
+
+var l = dumblogger{}
 
 func main() {
-	l.WithFields(logrus.Fields{
-		"env":      phrasegen.Environment,
-		"version":  phrasegen.Version,
-		"revision": phrasegen.Revision,
-	}).Info("initializated")
-
-	defer notifier.NotifyOnPanic()
 	if phrasegen.Environment == "dev" {
 		l.Info("app config: ", phrasegen.Config)
 	}
 
 	c := markov.NewChain()
 
-	if !fakeRun {
-		if asyncFill {
-			fillMarkovAsync(c, fpath)
-		} else {
-			fillMarkov(c, fpath)
+	l.Info("trying to initiate hot start")
+	if !c.TryImport(cachefile) {
+		if !fakeRun {
+			if asyncFill {
+				fillMarkovAsync(c, fpath)
+			} else {
+				fillMarkov(c, fpath)
+			}
+		}
+		l.Info("recalculating chances")
+		c.CalculateCells()
+		if err := c.Export(cachefile); err != nil {
+			l.WithError(err).Warn("can't cache to file")
 		}
 	}
 
-	l.Info("recalculating chances")
-	c.CalculateCells()
 	l.Println("ready to accept messages")
 	sc := bufio.NewReader(os.Stdin)
 	status = AppStatus{"Ok"}
@@ -159,7 +153,7 @@ func initgRPC(c *markov.Chain) error {
 		return err
 	}
 	grpcServer := grpc.NewServer([]grpc.ServerOption{}...)
-	api.RegisterAPIServer(grpcServer, api.NewServer(c, logrus.InfoLevel))
+	api.RegisterAPIServer(grpcServer, api.NewServer(c, phrasegen.LogLevel))
 	lw.WithField("Port", phrasegen.Port).Info("running grpc server")
 	return grpcServer.Serve(l)
 }
@@ -240,13 +234,13 @@ func getNewMsg(c *markov.Chain) string {
 			break
 		}
 		if err != nil {
-			// fmt.Println(err)
+			fmt.Println(err)
 			break
 		}
 		if cnt > 30 {
 			break
 		}
-		// fmt.Printf("Word: %s\tType: %d\n", t, tp)
+		fmt.Printf("Word: %s\tType: %d\n", t, tp)
 	}
 	txt := strings.Join(txts[:len(txts)-1], " ")
 	txt = strings.Replace(txt, "*END*", ".", -1)

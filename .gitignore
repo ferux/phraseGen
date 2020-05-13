@@ -13,3 +13,6 @@
 /bin
 .env
 .vscode
+
+*.bin
+*.swp

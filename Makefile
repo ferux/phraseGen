@@ -5,12 +5,14 @@ GIT_TAG := $(shell git describe --abbrev=0 --tags)
 GIT_REV := $(shell git rev-parse --short HEAD)
 ENV ?= dev
 
+export CGO_ENABLED=0
+
 build:
 	@echo "Removing previous build"
 	-rm $(OUT)
 	@echo "**************************"
 	@echo "Building new application"
-	go build -i -ldflags "-X $(GO_PACKAGE).Version=$(GIT_TAG) -X $(GO_PACKAGE).Revision=$(GIT_REV) -X $(GO_PACKAGE).Environment=$(ENV)" -o $(OUT) ./cmd/
+	@go build -ldflags "-X $(GO_PACKAGE).Version=$(GIT_TAG) -X $(GO_PACKAGE).Revision=$(GIT_REV) -X $(GO_PACKAGE).Environment=$(ENV)" -o $(OUT) ./cmd/
 	@echo "**************************"
 
 build_linux: export GOOS := linux
